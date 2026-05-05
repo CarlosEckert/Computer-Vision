@@ -17,17 +17,21 @@ def init_yolo(model_path='yolov8n.pt'):
     return YOLO(model_path)
 
 
-def run_yolo_tracker(model, frame):
-    results = model.track(frame, persist=True)
+def run_yolo_tracker(model, frame, verbose):
+    results = model.track(frame, persist=True, verbose=verbose)
     if results[0].boxes is not None:
         for box in results[0].boxes:
             x1, y1, x2, y2 = (int(v) for v in box.xyxy[0])
             draw_rectangle(frame, x1, y1, x2 - x1, y2 - y1)
+            label = results[0].names[int(box.cls[0])]
+            cv2.putText(frame, label, (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)        # = text aboth the object rectangle
 
 
 def use_camera():
     print("Starting usage of camera, Press ESC to quit.")
     model = init_yolo()
+    frame_count = 0
+    print_interval = 60  # does not consern the tracking and is just the interval for terminal prints which act as a save point / history
 
     source = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 
@@ -39,7 +43,9 @@ def use_camera():
         if not has_frame:
             break
 
-        run_yolo_tracker(model, frame)
+        verbose = frame_count % print_interval == 0
+        run_yolo_tracker(model, frame, verbose)
+        frame_count += 1
         cv2.imshow(win_name, frame)
 
     source.release()
