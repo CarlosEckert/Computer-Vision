@@ -1,9 +1,4 @@
-import os
 import cv2
-import numpy as np
-import matplotlib.pyplot as plt
-import mss
-import keyboard
 from ultralytics import YOLO
 
 
@@ -17,14 +12,14 @@ def init_yolo(model_path='yolov8n.pt'):
     return YOLO(model_path)
 
 
-def run_yolo_tracker(model, frame, verbose):
-    results = model.track(frame, persist=True, verbose=verbose)
+def run_yolo_tracker(model, frame, print_bool):
+    results = model.track(frame, persist=True, verbose=print_bool)
     if results[0].boxes is not None:
         for box in results[0].boxes:
             x1, y1, x2, y2 = (int(v) for v in box.xyxy[0])
             draw_rectangle(frame, x1, y1, x2 - x1, y2 - y1)
             label = results[0].names[int(box.cls[0])]
-            cv2.putText(frame, label, (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)        # = text aboth the object rectangle
+            cv2.putText(frame, label, (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)    # = text aboth the object rectangle
 
 
 def use_camera():
@@ -43,17 +38,13 @@ def use_camera():
         if not has_frame:
             break
 
-        verbose = frame_count % print_interval == 0
-        run_yolo_tracker(model, frame, verbose)
+        print_bool = frame_count % print_interval == 0
+        run_yolo_tracker(model, frame, print_bool)
         frame_count += 1
         cv2.imshow(win_name, frame)
 
     source.release()
     cv2.destroyWindow(win_name)
-
-
-
-
 
 
 use_camera()
