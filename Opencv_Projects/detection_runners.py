@@ -1,5 +1,5 @@
 import cv2
-from detection_core import init_yolo, run_yolo_tracker
+from detection_core import init_yolo, run_yolo_tracker, WINDOW_WIDTH, WINDOW_HEIGHT
 
 
 def detect_camera():
@@ -13,6 +13,7 @@ def detect_camera():
 
     win_name = 'Camera Preview'
     cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(win_name, WINDOW_WIDTH, WINDOW_HEIGHT)
 
     while cv2.waitKey(1) != 27:  # Escape
         has_frame, frame = source.read()
@@ -35,9 +36,12 @@ def detect_image(image_path):
     frame = cv2.imread(image_path)
     run_yolo_tracker(model, frame, True, False)
 
-    cv2.imshow('Detection', frame)
+    win_name = 'Detection'
+    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(win_name, WINDOW_WIDTH, WINDOW_HEIGHT)
+    cv2.imshow(win_name, frame)
     cv2.waitKey(0)
-    cv2.destroyWindow('Detection')
+    cv2.destroyWindow(win_name)
 
 
 def detect_video(video_path):
@@ -51,6 +55,7 @@ def detect_video(video_path):
 
     win_name = 'Video Detection'
     cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(win_name, WINDOW_WIDTH, WINDOW_HEIGHT)
 
     while cv2.waitKey(1) != 27:  # Escape
         has_frame, frame = source.read()
@@ -64,3 +69,8 @@ def detect_video(video_path):
 
     source.release()
     cv2.destroyWindow(win_name)
+
+
+detect_camera()
+# detect_image('path/to/image')
+# detect_video('path/to/video')

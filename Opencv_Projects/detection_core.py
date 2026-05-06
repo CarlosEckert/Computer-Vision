@@ -2,6 +2,10 @@ import cv2
 from ultralytics import YOLO
 
 
+WINDOW_WIDTH = 480
+WINDOW_HEIGHT = 270
+
+
 def draw_rectangle(frame, x, y, width, height):
     cv2.rectangle(frame, (x, y), (x + width, y + height), (0, 0, 0), thickness=2)
 

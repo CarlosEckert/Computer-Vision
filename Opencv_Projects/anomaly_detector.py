@@ -1,6 +1,6 @@
 import time
 import cv2
-from detection_core import init_yolo, run_yolo_tracker
+from detection_core import init_yolo, run_yolo_tracker, WINDOW_WIDTH, WINDOW_HEIGHT
 
 
 def detect_anomalies(video_source=0, scan_duration=5, percentage=80):
@@ -15,7 +15,7 @@ def detect_anomalies(video_source=0, scan_duration=5, percentage=80):
     frame_class_counts = []  # one dict per scan frame: {label: count}
     baseline = None  # set after scan: {label: max_count}
     reported_anomalies = set()
-    start_time = time.time()
+    start_time = None  # set when the first frame is shown
 
     if isinstance(video_source, int):
         source = cv2.VideoCapture(video_source, cv2.CAP_DSHOW)
@@ -24,6 +24,7 @@ def detect_anomalies(video_source=0, scan_duration=5, percentage=80):
 
     win_name = 'Anomaly Detection'
     cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(win_name, WINDOW_WIDTH, WINDOW_HEIGHT)
 
     while cv2.waitKey(1) != 27:  # Escape
         has_frame, frame = source.read()
@@ -31,6 +32,8 @@ def detect_anomalies(video_source=0, scan_duration=5, percentage=80):
             break
 
         counts = run_yolo_tracker(model, frame, False, True, id_map)
+        if start_time is None:
+            start_time = time.time()
         elapsed = time.time() - start_time
 
         if baseline is None:
@@ -67,3 +70,6 @@ def detect_anomalies(video_source=0, scan_duration=5, percentage=80):
 
     source.release()
     cv2.destroyWindow(win_name)
+
+
+detect_anomalies(0, scan_duration=5, percentage=80)
