@@ -4,32 +4,7 @@ from PIL import ImageGrab
 from detection_core import init_yolo, run_yolo_tracker
 
 
-def detect_camera():
-    print("Starting usage of camera, Press ESC to quit.")
-    model = init_yolo()
-    frame_count = 0
-    print_interval = 60  # does not consern the tracking and is just the interval for terminal prints which act as a save point / history
-    id_map = {}
-
-    source = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-
-    win_name = 'Camera Preview'
-
-    while cv2.waitKey(1) != 27:  # Escape
-        has_frame, frame = source.read()
-        if not has_frame:
-            break
-
-        print_bool = frame_count % print_interval == 0
-        run_yolo_tracker(model, frame, print_bool, True, id_map)
-        frame_count += 1
-        cv2.imshow(win_name, frame)
-
-    source.release()
-    cv2.destroyWindow(win_name)
-
-
-def detect_image(image_path=None, frame=None):
+def process_image(image_path=None, frame=None, remove_downscaling=True):
     print("Press ESC to quit.")
     model = init_yolo()
 
@@ -42,12 +17,26 @@ def detect_image(image_path=None, frame=None):
     else:
         print("Detect_image must be called with image path or frame, must be set as the right keyword argument")
 
-    run_yolo_tracker(model, frame, True, False)
+    # Round the frame's width up to the next multiple of 32 (YOLO's stride requirement).
+    # Small input images will be processed quicker this way without loosing information and larger will be processed with higher quality
+    # Model standard is to downscale to 640
+    if remove_downscaling:
+        frame_width = frame.shape[1]
+        pixel_width_after_compressing = ((frame_width + 31) // 32) * 32
+    else:
+        pixel_width_after_compressing = 640
+
+    run_yolo_tracker(model, frame, True, False, pixel_width_after_compressing=pixel_width_after_compressing)
 
     win_name = 'Detection'
     cv2.imshow(win_name, frame)
     cv2.waitKey(0)
     cv2.destroyWindow(win_name)
+
+
+def detect_saved_image(image_path):
+    process_image(image_path)
+
 
 
 def detect_clipboard_image():
@@ -56,63 +45,70 @@ def detect_clipboard_image():
         print("No image found in clipboard.")
         return
     frame = cv2.cvtColor(np.array(clipboard_image), cv2.COLOR_RGB2BGR)
-    detect_image(frame=frame)
+    process_image(frame=frame)
 
 
 
-def detect_video(video_path):
+
+
+
+# here the removal of the downscaling should be done carefully. Which one frame the computational intensity inst a problem, in a video it is a different story
+# CAREFUL if you change the remove_downscaling to True here, the task manager might not show differences in cpu utilization, but the cpu temperature will go up rapidly (in my case 65° celsius vs 83° celsius)
+# should only be a problem if you don't have a nvidea gpu but no guaranties (for context I have an amd gpu so no Cuda so everything runs on the cpu)
+def process_video(source, track=True, remove_downscaling=False):
     print("Press ESC to quit.")
     model = init_yolo()
+    frame_count = 0
+    print_interval = 60  # does not concern the tracking and is just the interval for terminal prints which act as a save point / history
     id_map = {}
 
-    source = cv2.VideoCapture(video_path)
-    frame_count = 0
-    print_interval = 60
-
-    win_name = 'Video Detection'
+    is_screen = source == 'screen'
+    if is_screen:
+        cap = None
+        win_name = 'Screen Detection'
+    elif isinstance(source, int):
+        cap = cv2.VideoCapture(source, cv2.CAP_DSHOW)
+        win_name = 'Camera Preview'
+    else:
+        cap = cv2.VideoCapture(source)
+        win_name = 'Video Detection'
 
     while cv2.waitKey(1) != 27:  # Escape
-        has_frame, frame = source.read()
-        if not has_frame:
-            break
+        if is_screen:
+            screenshot = ImageGrab.grab()
+            frame = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+        else:
+            has_frame, frame = cap.read()
+            if not has_frame:
+                break
+
+        if remove_downscaling:
+            frame_width = frame.shape[1]
+            pixel_width_after_compressing = ((frame_width + 31) // 32) * 32
+        else:
+            pixel_width_after_compressing = 640
 
         print_bool = frame_count % print_interval == 0
-        run_yolo_tracker(model, frame, print_bool, True, id_map)
+        run_yolo_tracker(model, frame, print_bool, track, id_map, pixel_width_after_compressing=pixel_width_after_compressing)
         frame_count += 1
         cv2.imshow(win_name, frame)
 
-    source.release()
+    if cap is not None:
+        cap.release()
     cv2.destroyWindow(win_name)
 
 
-# works best with a second monitor that has the same resolution, in that case delete the resizing and push the detection window to the second monitor
+def detect_camera(camera_index=0):
+    process_video(camera_index)
+
+
+def detect_saved_video(video_path):
+    process_video(video_path)
+
+
 def detect_screen():
-    print("Starting screen detection. Press ESC to quit.")
-    model = init_yolo()
-    frame_count = 0
-    print_interval = 60
-    id_map = {}
-
-    win_name = 'Screen Detection'
-
-    while cv2.waitKey(1) != 27:  # Escape
-        screenshot = ImageGrab.grab()
-        frame = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
-        #frame = cv2.resize(frame, (883, 480))
-
-        print_bool = frame_count % print_interval == 0
-        run_yolo_tracker(model, frame, print_bool, False, id_map)
-        frame_count += 1
-
-        cv2.imshow(win_name, frame)
-
-    cv2.destroyWindow(win_name)
+    process_video('screen')
 
 
 
 
-#detect_camera()
-#detect_image(image_path='chair2.jpg')
-#detect_clipboard_image()
-#detect_video(r'C:\Users\carlo\Videos\SteelSeries Moments\Counter-Strike-2__2026-04-22__22-21-03.mp4')
-detect_screen()

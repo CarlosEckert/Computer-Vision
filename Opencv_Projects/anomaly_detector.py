@@ -1,14 +1,12 @@
 import time
 import cv2
-from detection_core import init_yolo, run_yolo_tracker, WINDOW_WIDTH, WINDOW_HEIGHT
+from detection_core import init_yolo, run_yolo_tracker
 
 
+
+# souce can also be a path to a video file, will fiter due to int check
 def detect_anomalies(video_source=0, scan_duration=5, percentage=80):
-    """
-    video_source: 0 (or other int) for camera, or a path to a video file.
-    scan_duration: seconds to scan the scene to learn what's normal.
-    percentage: a class must appear in at least this % of scan frames to be baseline.
-    """
+
     print(f"Scanning for {scan_duration}s to build baseline...")
     model = init_yolo()
     id_map = {}
@@ -24,7 +22,6 @@ def detect_anomalies(video_source=0, scan_duration=5, percentage=80):
 
     win_name = 'Anomaly Detection'
     cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(win_name, WINDOW_WIDTH, WINDOW_HEIGHT)
 
     while cv2.waitKey(1) != 27:  # Escape
         has_frame, frame = source.read()
@@ -71,5 +68,3 @@ def detect_anomalies(video_source=0, scan_duration=5, percentage=80):
     source.release()
     cv2.destroyWindow(win_name)
 
-
-detect_anomalies(0, scan_duration=5, percentage=80)
