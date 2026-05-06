@@ -1,5 +1,7 @@
 import cv2
-from detection_core import init_yolo, run_yolo_tracker, WINDOW_WIDTH, WINDOW_HEIGHT
+import numpy as np
+from PIL import ImageGrab
+from detection_core import init_yolo, run_yolo_tracker
 
 
 def detect_camera():
@@ -12,8 +14,6 @@ def detect_camera():
     source = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 
     win_name = 'Camera Preview'
-    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(win_name, WINDOW_WIDTH, WINDOW_HEIGHT)
 
     while cv2.waitKey(1) != 27:  # Escape
         has_frame, frame = source.read()
@@ -29,19 +29,35 @@ def detect_camera():
     cv2.destroyWindow(win_name)
 
 
-def detect_image(image_path):
+def detect_image(image_path=None, frame=None):
     print("Press ESC to quit.")
     model = init_yolo()
 
-    frame = cv2.imread(image_path)
+    if frame is None and image_path is not None:
+        frame = cv2.imread(image_path)
+
+    elif frame is not None and image_path is None:
+        frame = frame  # just to clarify
+
+    else:
+        print("Detect_image must be called with image path or frame, must be set as the right keyword argument")
+
     run_yolo_tracker(model, frame, True, False)
 
     win_name = 'Detection'
-    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(win_name, WINDOW_WIDTH, WINDOW_HEIGHT)
     cv2.imshow(win_name, frame)
     cv2.waitKey(0)
     cv2.destroyWindow(win_name)
+
+
+def detect_clipboard_image():
+    clipboard_image = ImageGrab.grabclipboard()
+    if clipboard_image is None:
+        print("No image found in clipboard.")
+        return
+    frame = cv2.cvtColor(np.array(clipboard_image), cv2.COLOR_RGB2BGR)
+    detect_image(frame=frame)
+
 
 
 def detect_video(video_path):
@@ -54,8 +70,6 @@ def detect_video(video_path):
     print_interval = 60
 
     win_name = 'Video Detection'
-    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(win_name, WINDOW_WIDTH, WINDOW_HEIGHT)
 
     while cv2.waitKey(1) != 27:  # Escape
         has_frame, frame = source.read()
@@ -71,6 +85,34 @@ def detect_video(video_path):
     cv2.destroyWindow(win_name)
 
 
-detect_camera()
-# detect_image('path/to/image')
-# detect_video('path/to/video')
+# works best with a second monitor that has the same resolution, in that case delete the resizing and push the detection window to the second monitor
+def detect_screen():
+    print("Starting screen detection. Press ESC to quit.")
+    model = init_yolo()
+    frame_count = 0
+    print_interval = 60
+    id_map = {}
+
+    win_name = 'Screen Detection'
+
+    while cv2.waitKey(1) != 27:  # Escape
+        screenshot = ImageGrab.grab()
+        frame = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+        #frame = cv2.resize(frame, (883, 480))
+
+        print_bool = frame_count % print_interval == 0
+        run_yolo_tracker(model, frame, print_bool, False, id_map)
+        frame_count += 1
+
+        cv2.imshow(win_name, frame)
+
+    cv2.destroyWindow(win_name)
+
+
+
+
+#detect_camera()
+#detect_image(image_path='chair2.jpg')
+#detect_clipboard_image()
+#detect_video(r'C:\Users\carlo\Videos\SteelSeries Moments\Counter-Strike-2__2026-04-22__22-21-03.mp4')
+detect_screen()

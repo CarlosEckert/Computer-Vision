@@ -2,15 +2,13 @@ import cv2
 from ultralytics import YOLO
 
 
-WINDOW_WIDTH = 480
-WINDOW_HEIGHT = 270
-
 
 def draw_rectangle(frame, x, y, width, height):
     cv2.rectangle(frame, (x, y), (x + width, y + height), (0, 0, 0), thickness=2)
 
 
-def init_yolo(model_path='yolov8n.pt'):
+# oiv7 modell is trained on the open images 7 databank with 600 object classes
+def init_yolo(model_path='yolov8m-oiv7.pt'):
     return YOLO(model_path)
 
 
@@ -58,5 +56,5 @@ def run_yolo_tracker(model, frame, print_bool, track_bool, id_map=None):
                 class_counts[label] = class_counts.get(label, 0) + 1
                 number = class_counts[label]
 
-            cv2.putText(frame, f'{label} {number}', (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+            cv2.putText(frame, f'{label} {number}', (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 0), 1)
     return frame_counts
