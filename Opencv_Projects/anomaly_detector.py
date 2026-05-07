@@ -4,7 +4,7 @@ from detection_core import init_yolo, run_yolo_tracker
 
 
 
-# souce can also be a path to a video file, will fiter due to int check
+# source can also be a path to a video file, will fiter due to int check
 def detect_anomalies(video_source=0, scan_duration=5, percentage=80):
 
     print(f"Scanning for {scan_duration}s to build baseline...")
