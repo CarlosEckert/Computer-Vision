@@ -17,16 +17,7 @@ def process_image(image_path=None, frame=None, remove_downscaling=True):
     else:
         print("Detect_image must be called with image path or frame, must be set as the right keyword argument")
 
-    # Round the frame's width up to the next multiple of 32 (YOLO's stride requirement).
-    # Small input images will be processed quicker this way without loosing information and larger will be processed with higher quality
-    # Model standard is to downscale to 640
-    if remove_downscaling:
-        frame_width = frame.shape[1]
-        pixel_width_after_compressing = ((frame_width + 31) // 32) * 32
-    else:
-        pixel_width_after_compressing = 640
-
-    run_yolo_tracker(model, frame, True, False, pixel_width_after_compressing=pixel_width_after_compressing)
+    run_yolo_tracker(model, frame, True, False, remove_downscaling=remove_downscaling)
 
     win_name = 'Detection'
     cv2.imshow(win_name, frame)
@@ -38,7 +29,7 @@ def detect_saved_image(image_path):
     process_image(image_path)
 
 
-
+# if you have a problem with images not being detected that you copied some time ago, (enable clipboard history and) from the clipboard manager click the image once that you want to analyze before running the code
 def detect_clipboard_image():
     clipboard_image = ImageGrab.grabclipboard()
     if clipboard_image is None:
@@ -82,14 +73,8 @@ def process_video(source, track=True, remove_downscaling=False):
             if not has_frame:
                 break
 
-        if remove_downscaling:
-            frame_width = frame.shape[1]
-            pixel_width_after_compressing = ((frame_width + 31) // 32) * 32
-        else:
-            pixel_width_after_compressing = 640
-
         print_bool = frame_count % print_interval == 0
-        run_yolo_tracker(model, frame, print_bool, track, id_map, pixel_width_after_compressing=pixel_width_after_compressing)
+        run_yolo_tracker(model, frame, print_bool, track, id_map, remove_downscaling=remove_downscaling)
         frame_count += 1
         cv2.imshow(win_name, frame)
 

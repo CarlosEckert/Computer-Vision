@@ -4,8 +4,12 @@ from anomaly_detector import detect_anomalies
 
 
 if __name__ == '__main__':
-    # False: The Detection will be reasonable, True: Nearly everything that the model thinks could be an objects will be marked as one
+    # False: The Detection will be reasonable. True: Nearly everything that the model thinks could be an objects will be marked as one
     detection_core.DETECT_EVERYTHING = False
+
+    # False: Will print the confidence of each object in the terminal but will not show in preview. True: Will also show the conf in preview
+    detection_core.SHOW_CONF_IN_PREVIEW = True
+
 
     #detect_saved_image(r'C:\downloads\chair tesst.jpg')
     detect_clipboard_image()
