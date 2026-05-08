@@ -10,6 +10,7 @@ REMOVE_DOWNSCALING_IN_VIDEOS = False
 ANALYSE_EVERY_X_FRAME = 1
 
 
+
 def _exclude_window_from_capture(win_name):
     try:
         user32 = ctypes.windll.user32
@@ -83,9 +84,17 @@ def process_video(source, track=True, output_path=None):
         cap = cv2.VideoCapture(source)
         win_name = 'Video Detection'
 
+    # Saved videos in preview mode need pacing — without it, fast loops (e.g. ANALYSE_EVERY_X_FRAME > 1)
+    # blast through the file. Camera/screen don't need this (live sources have their own clock); save mode
+    # doesn't want this (we write as fast as possible).
+    needs_pacing = not is_screen and not isinstance(source, int) and output_path is None
+    pacing_start_time = time.time() if needs_pacing else None
+
     # Set up the writer when saving
     writer = None
     total_frames = 0
+    fps = 0
+    analysis_start = None
     if save_mode:
         fps = cap.get(cv2.CAP_PROP_FPS) or 30
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -93,6 +102,7 @@ def process_video(source, track=True, output_path=None):
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        analysis_start = time.time()
 
     # Set up a resizable preview window (skipped in save mode since there's no preview).
     # For screen capture, default the initial size to 1/3 of the screen resolution so 4K and FHD monitors look comparable.
@@ -138,11 +148,24 @@ def process_video(source, track=True, output_path=None):
         else:
             cv2.imshow(win_name, frame)
 
+        if needs_pacing:
+            next_frame_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
+            elapsed_ms = (time.time() - pacing_start_time) * 1000
+            sleep_for = (next_frame_ms - elapsed_ms) / 1000
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+
+
     if cap is not None:
         cap.release()
     if save_mode:
         writer.release()
-        print(f"Done. Saved {frame_count} frames to {output_path}")
+        elapsed = time.time() - analysis_start
+        video_duration = total_frames / fps
+
+        print(f"\n\nDone. Saved analysed video to {output_path}")
+        print(f"  Source video: {video_duration} sec at {fps:.2f} FPS")
+        print(f"  Analysis took: {elapsed:.2f} sec")
     else:
         cv2.destroyWindow(win_name)
 

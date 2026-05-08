@@ -19,14 +19,15 @@ if __name__ == '__main__':
     detection_runners.REMOVE_DOWNSCALING_IN_VIDEOS = False
 
     # if you want to have less computational load or the preview or processing of detecting a saved video is to slow, increase this number
-    detection_runners.ANALYSE_EVERY_X_FRAME = 1
+    detection_runners.ANALYSE_EVERY_X_FRAME = 10     # 3 only looks normal because now the inference time = typical frame time. the inference isnt beeing addet to the frame time because analysing the frame is quicker then the frame time
 
 
     #detect_saved_image('chair_image.png')
-    detect_clipboard_image()
+    #detect_clipboard_image()
 
     #detect_camera()
-    #detect_saved_video_live(r'C:\Users\carlo\Videos\SteelSeries Moments\Fortnite__2026-04-21__20-19-52.mp4')
+    #detect_saved_video_live(r'C:\Users\carlo\Videos\SteelSeries Moments\Counter-Strike-2__2026-04-22__22-21-03.mp4')
+    detect_saved_video_then_saveit(r'C:\Users\carlo\Videos\SteelSeries Moments\Counter-Strike-2__2026-04-22__22-21-03.mp4', r'C:\Users\carlo\Videos\SteelSeries Moments\detection_test.mp4')
     #detect_screen()
 
     #detect_anomalies(0, scan_duration=5, percentage=80)

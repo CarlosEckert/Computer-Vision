@@ -5,6 +5,11 @@ from ultralytics import YOLO
 DETECT_EVERYTHING = False
 SHOW_CONF_IN_PREVIEW = False
 
+# Tracks the last set of detected objects so we only write to the terminal when it changes.
+# A "set" here is (label, number) for labelled items and label-only for low-confidence ones —
+# confidence values fluctuate frame-to-frame, so they're deliberately excluded.
+_last_print_signature = None
+
 
 def draw_rectangle(frame, x, y, width, height):
     cv2.rectangle(frame, (x, y), (x + width, y + height), (0, 0, 0), thickness=1)
@@ -19,6 +24,8 @@ def init_yolo(model_path='yolov8m-oiv7.pt'):
 # remove_downscaling: when True, YOLO processes the frame at its native width (rounded up to the next multiple of 32) instead of the default 640.
 # Small objects are detected better at the cost of computational intensity. 640 is baseline, 1920 would be 9x the computation.
 def run_yolo_tracker(model, frame, print_bool, track_bool, id_map=None, conf=0.2, labeling_conf=0.2, iou=0.45, max_det=300, remove_downscaling=False):
+    global _last_print_signature
+
     if DETECT_EVERYTHING:
         conf = 0.01
         labeling_conf = 0.01
@@ -53,9 +60,10 @@ def run_yolo_tracker(model, frame, print_bool, track_bool, id_map=None, conf=0.2
 
     frame_counts = {}
     drawables = []  # list of (x1, y1, x2, y2, label_text, show_label) tuples for re-drawing on skipped frames
+    high_conf_items = []  # collected for change-based terminal output
+    low_conf_items = []
     if boxes is not None:
         class_counts = {}
-        low_conf_items = []
         for box in boxes:
             x1, y1, x2, y2 = (int(v) for v in box.xyxy[0])
             draw_rectangle(frame, x1, y1, x2 - x1, y2 - y1)
@@ -87,15 +95,12 @@ def run_yolo_tracker(model, frame, print_bool, track_bool, id_map=None, conf=0.2
             draw_label(frame, x1, y1, label_text, show_label)
             drawables.append((x1, y1, x2, y2, label_text, show_label))
 
-            if print_bool:
-                if show_label:
-                    print(f'{label_text}')
-                else:
-                    low_conf_items.append((label, box_conf))
+            if show_label:
+                high_conf_items.append((label, number, box_conf))
+            else:
+                low_conf_items.append((label, number, box_conf))
 
-        if print_bool and low_conf_items:
-            items_str = ', '.join(f'{lbl} {c:.2f}' for lbl, c in low_conf_items)
-            print(f'  + {len(low_conf_items)} low-confidence detection(s): {items_str}')
+
     return frame_counts, drawables
 
 
