@@ -52,6 +52,7 @@ def run_yolo_tracker(model, frame, print_bool, track_bool, id_map=None, conf=0.2
                 del id_map[k]
 
     frame_counts = {}
+    drawables = []  # list of (x1, y1, x2, y2, label_text, show_label) tuples for re-drawing on skipped frames
     if boxes is not None:
         class_counts = {}
         low_conf_items = []
@@ -84,6 +85,7 @@ def run_yolo_tracker(model, frame, print_bool, track_bool, id_map=None, conf=0.2
             show_label = box_conf >= labeling_conf
 
             draw_label(frame, x1, y1, label_text, show_label)
+            drawables.append((x1, y1, x2, y2, label_text, show_label))
 
             if print_bool:
                 if show_label:
@@ -94,7 +96,15 @@ def run_yolo_tracker(model, frame, print_bool, track_bool, id_map=None, conf=0.2
         if print_bool and low_conf_items:
             items_str = ', '.join(f'{lbl} {c:.2f}' for lbl, c in low_conf_items)
             print(f'  + {len(low_conf_items)} low-confidence detection(s): {items_str}')
-    return frame_counts
+    return frame_counts, drawables
+
+
+# Re-draw cached detections on a fresh frame without re-running YOLO. Used when ANALYSE_EVERY_X_FRAME > 1
+# so skipped frames show the last known boxes instead of flickering between annotated and raw.
+def redraw_detections(frame, drawables):
+    for x1, y1, x2, y2, label_text, show_label in drawables:
+        draw_rectangle(frame, x1, y1, x2 - x1, y2 - y1)
+        draw_label(frame, x1, y1, label_text, show_label)
 
 
 
@@ -132,9 +142,9 @@ def draw_label(frame, x1, y1, label_text, show_label):
         if 0 <= sample_x < frame_width and 0 <= sample_y < frame_height:
             b, g, r = frame[sample_y, sample_x]
             brightness = 0.299 * r + 0.587 * g + 0.114 * b
-            if brightness < 60:
+            if 60 > brightness > 1:     # >1 is at times a bit more consistent
                 dark_count += 1
-    if dark_count >= 1:
+    if dark_count >= 2:
         text_color = (255, 255, 255)
 
     cv2.putText(frame, label_text, (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, text_color, 1, cv2.LINE_AA)

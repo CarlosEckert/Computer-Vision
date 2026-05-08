@@ -1,7 +1,24 @@
 import cv2
+import ctypes
+import time
 import numpy as np
 from PIL import ImageGrab
-from detection_core import init_yolo, run_yolo_tracker
+from detection_core import init_yolo, run_yolo_tracker, redraw_detections
+
+
+REMOVE_DOWNSCALING_IN_VIDEOS = False
+ANALYSE_EVERY_X_FRAME = 1
+
+
+def _exclude_window_from_capture(win_name):
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.FindWindowW(None, win_name)
+        if hwnd:
+            WDA_EXCLUDEFROMCAPTURE = 0x00000011
+            user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
+    except (AttributeError, OSError):
+        pass  # not Windows or unsupported version
 
 
 def process_image(image_path=None, frame=None, remove_downscaling=True):
@@ -20,6 +37,7 @@ def process_image(image_path=None, frame=None, remove_downscaling=True):
     run_yolo_tracker(model, frame, True, False, remove_downscaling=remove_downscaling)
 
     win_name = 'Detection'
+    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
     cv2.imshow(win_name, frame)
     cv2.waitKey(0)
     cv2.destroyWindow(win_name)
@@ -40,18 +58,19 @@ def detect_clipboard_image():
 
 
 
+def process_video(source, track=True, output_path=None):
+    save_mode = output_path is not None
 
+    if save_mode:
+        print(f"Saving annotated video to {output_path}...")
+    else:
+        print("Press ESC to quit.")
 
-
-# here the removal of the downscaling should be done carefully. Which one frame the computational intensity inst a problem, in a video it is a different story
-# CAREFUL if you change the remove_downscaling to True here, the task manager might not show differences in cpu utilization, but the cpu temperature will go up rapidly (in my case 65° celsius vs 83° celsius)
-# should only be a problem if you don't have a nvidea gpu but no guaranties (for context I have an amd gpu so no Cuda so everything runs on the cpu)
-def process_video(source, track=True, remove_downscaling=False):
-    print("Press ESC to quit.")
     model = init_yolo()
     frame_count = 0
     print_interval = 60  # does not concern the tracking and is just the interval for terminal prints which act as a save point / history
     id_map = {}
+    last_drawables = []  # cached detections to redraw on skipped frames
 
     is_screen = source == 'screen'
     if is_screen:
@@ -64,7 +83,35 @@ def process_video(source, track=True, remove_downscaling=False):
         cap = cv2.VideoCapture(source)
         win_name = 'Video Detection'
 
-    while cv2.waitKey(1) != 27:  # Escape
+    # Set up the writer when saving
+    writer = None
+    total_frames = 0
+    if save_mode:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+    # Set up a resizable preview window (skipped in save mode since there's no preview).
+    # For screen capture, default the initial size to 1/3 of the screen resolution so 4K and FHD monitors look comparable.
+    if not save_mode:
+        cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+        if is_screen:
+            screen_width, screen_height = ImageGrab.grab().size
+            cv2.resizeWindow(win_name, screen_width // 3, screen_height // 3)
+            # Force the window to actually be created at the OS level (namedWindow alone doesn't),
+            # then mark it excluded from screen capture so it disappears from ImageGrab's view.
+            cv2.imshow(win_name, np.zeros((100, 100, 3), dtype=np.uint8))
+            cv2.waitKey(1)
+            _exclude_window_from_capture(win_name)
+
+    while True:
+        # In preview mode the waitKey is needed to pump window events and check ESC; in save mode we skip it for speed
+        if not save_mode and cv2.waitKey(1) == 27:
+            break
+
         if is_screen:
             screenshot = ImageGrab.grab()
             frame = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
@@ -73,27 +120,48 @@ def process_video(source, track=True, remove_downscaling=False):
             if not has_frame:
                 break
 
-        print_bool = frame_count % print_interval == 0
-        run_yolo_tracker(model, frame, print_bool, track, id_map, remove_downscaling=remove_downscaling)
+        # analyse_every_x_frame <= 1 disables the skip logic (analyse every frame); otherwise only analyse every Xth frame
+        should_analyse = ANALYSE_EVERY_X_FRAME <= 1 or frame_count % ANALYSE_EVERY_X_FRAME == 0
+        if should_analyse:
+            print_bool = frame_count % print_interval == 0
+            _, last_drawables = run_yolo_tracker(model, frame, print_bool, track, id_map, remove_downscaling=REMOVE_DOWNSCALING_IN_VIDEOS)
+        else:
+            # Skipped frame — redraw the last known boxes so they don't flicker on/off
+            redraw_detections(frame, last_drawables)
         frame_count += 1
-        cv2.imshow(win_name, frame)
+
+        # logic for saving or showing video with detections
+        if save_mode:
+            writer.write(frame)
+            if total_frames > 0 and frame_count % print_interval == 0:
+                print(f"  Progress: {frame_count}/{total_frames} ({100 * frame_count / total_frames:.1f}%)")
+        else:
+            cv2.imshow(win_name, frame)
 
     if cap is not None:
         cap.release()
-    cv2.destroyWindow(win_name)
+    if save_mode:
+        writer.release()
+        print(f"Done. Saved {frame_count} frames to {output_path}")
+    else:
+        cv2.destroyWindow(win_name)
 
 
 def detect_camera(camera_index=0):
     process_video(camera_index)
 
 
-def detect_saved_video(video_path):
+def detect_screen(track=False):
+    # screen content is usually static — predict mode (track=False) avoids the tracker's
+    # higher confidence thresholds, so mid-confidence detections aren't filtered out
+    process_video('screen', track=track)
+
+
+def detect_saved_video_live(video_path):
     process_video(video_path)
 
 
-def detect_screen():
-    process_video('screen')
-
-
+def detect_saved_video_then_saveit(video_path, output_path):
+    process_video(video_path, output_path=output_path)
 
 

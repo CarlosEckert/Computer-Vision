@@ -28,7 +28,7 @@ def detect_anomalies(video_source=0, scan_duration=5, percentage=80):
         if not has_frame:
             break
 
-        counts = run_yolo_tracker(model, frame, False, True, id_map)
+        counts, _ = run_yolo_tracker(model, frame, False, True, id_map, remove_downscaling=False)
         if start_time is None:
             start_time = time.time()
         elapsed = time.time() - start_time
