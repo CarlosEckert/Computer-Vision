@@ -21,21 +21,29 @@ def init_yolo(model_path='yolov8m-oiv7.pt'):
 
 
 
-# remove_downscaling: when True, YOLO processes the frame at its native width (rounded up to the next multiple of 32) instead of the default 640.
-# Small objects are detected better at the cost of computational intensity. 640 is baseline, 1920 would be 9x the computation.
-def run_yolo_tracker(model, frame, track_bool, id_map=None, max_det=300, remove_downscaling=False, silent=False):
-
+# Run YOLO once on a single frame and return the raw results object.
+# Pure I/O against the model — no shared state, no side effects on the frame.
+# Reads CONF and IOU from module-level globals so they can be tuned from main.py.
+def _run_inference(model, frame, track_bool, max_det, remove_downscaling):
+    # Round the frame's width up to the next multiple of 32 (YOLO's stride requirement).
+    # remove_downscaling=True keeps the frame's native resolution (better for small objects, ~9x compute at 1920p).
     if remove_downscaling:
-        frame_width = frame.shape[1]
-        pixel_width_after_compressing = ((frame_width + 31) // 32) * 32
+        imgsz = ((frame.shape[1] + 31) // 32) * 32
     else:
-        pixel_width_after_compressing = 640
+        imgsz = 640
 
     if track_bool:
-        results = model.track(frame, persist=True, verbose=False, conf=CONF, iou=IOU, max_det=max_det, imgsz=pixel_width_after_compressing)
+        return model.track(frame, persist=True, verbose=False, conf=CONF, iou=IOU, max_det=max_det, imgsz=imgsz)
     else:
-        results = model.predict(frame, verbose=False, conf=CONF, iou=IOU, max_det=max_det, imgsz=pixel_width_after_compressing)
+        return model.predict(frame, verbose=False, conf=CONF, iou=IOU, max_det=max_det, imgsz=imgsz)
 
+
+# Process a single frame end-to-end: run inference, manage tracker state, draw rectangles
+# and labels on the frame, and report changes to the terminal.
+# Returns (frame_counts, drawables): per-class counts (used by anomaly_detector) and a list
+# of cached draw instructions (used to re-render skipped frames in process_video).
+def analyse_frame(model, frame, track_bool, id_map=None, max_det=300, remove_downscaling=False, silent=False):
+    results = _run_inference(model, frame, track_bool, max_det, remove_downscaling)
     boxes = results[0].boxes
 
     # Prune stale tracker IDs from id_map (those no longer visible this frame)

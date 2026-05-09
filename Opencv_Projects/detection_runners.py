@@ -3,7 +3,7 @@ import ctypes
 import time
 import numpy as np
 from PIL import ImageGrab
-from detection_core import init_yolo, run_yolo_tracker, redraw_detections
+from detection_core import init_yolo, analyse_frame, redraw_detections
 
 
 REMOVE_DOWNSCALING_IN_VIDEOS = False
@@ -24,7 +24,7 @@ def process_image(image_path=None, frame=None, remove_downscaling=True):
     else:
         print("Detect_image must be called with image path or frame, must be set as the right keyword argument")
 
-    run_yolo_tracker(model, frame, True, remove_downscaling=remove_downscaling)
+    analyse_frame(model, frame, track_bool=False, remove_downscaling=remove_downscaling)
 
     win_name = 'Detection'
     cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
@@ -62,35 +62,20 @@ def process_video(source, track=True, output_path=None):
     id_map = {}
     last_drawables = []  # cached detections to redraw on skipped frames
 
-    is_screen = source == 'screen'
-    if is_screen:
-        cap = None
-        win_name = 'Screen Detection'
-    elif isinstance(source, int):
-        cap = cv2.VideoCapture(source, cv2.CAP_DSHOW)
-        win_name = 'Camera Preview'
-    else:
-        cap = cv2.VideoCapture(source)
-        win_name = 'Video Detection'
+    cap, win_name, is_screen = _open_source(source)
 
     # Saved videos in preview mode need pacing — without it, fast loops (e.g. ANALYSE_EVERY_X_FRAME > 1)
     # blast through the file. Camera/screen don't need this (live sources have their own clock); save mode
     # doesn't want this (we write as fast as possible).
-    needs_pacing = not is_screen and not isinstance(source, int) and output_path is None
+    needs_pacing = not is_screen and not isinstance(source, int) and not save_mode
     pacing_start_time = time.time() if needs_pacing else None
 
-    # Set up the writer when saving
     writer = None
-    total_frames = 0
     fps = 0
+    total_frames = 0
     analysis_start = None
     if save_mode:
-        fps = cap.get(cv2.CAP_PROP_FPS) or 30
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        writer, fps, total_frames = _open_writer(cap, output_path)
         analysis_start = time.time()
 
     # Set up a resizable preview window (skipped in save mode since there's no preview).
@@ -123,42 +108,70 @@ def process_video(source, track=True, output_path=None):
         should_analyse = ANALYSE_EVERY_X_FRAME <= 1 or frame_count % ANALYSE_EVERY_X_FRAME == 0
         if should_analyse:
             silent = analysed_count < WARMUP_FRAMES
-            _, last_drawables = run_yolo_tracker(model, frame, track, id_map, remove_downscaling=REMOVE_DOWNSCALING_IN_VIDEOS, silent=silent)
+            _, last_drawables = analyse_frame(model, frame, track_bool=track, id_map=id_map, remove_downscaling=REMOVE_DOWNSCALING_IN_VIDEOS, silent=silent)
             analysed_count += 1
         else:
             # Skipped frame — redraw the last known boxes so they don't flicker on/off
             redraw_detections(frame, last_drawables)
         frame_count += 1
 
-        # logic for saving or showing video with detections
         if save_mode:
             writer.write(frame)
         else:
             cv2.imshow(win_name, frame)
 
         if needs_pacing:
-            next_frame_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
-            elapsed_ms = (time.time() - pacing_start_time) * 1000
-            sleep_for = (next_frame_ms - elapsed_ms) / 1000
-            if sleep_for > 0:
-                time.sleep(sleep_for)
-
+            _pace_to_video_clock(cap, pacing_start_time)
 
     if cap is not None:
         cap.release()
     if save_mode:
         writer.release()
-        elapsed = time.time() - analysis_start
-        video_duration = total_frames / fps
-
-        print(f"\n\nDone. Saved analysed video to {output_path}")
-        print(f"  Source video: {video_duration} sec at {fps:.2f} FPS")
-        print(f"  Analysis took: {elapsed:.2f} sec")
+        _print_save_summary(output_path, fps, total_frames, analysis_start)
     else:
         cv2.destroyWindow(win_name)
 
 
+
+def _open_source(source):
+    """Open the appropriate capture source. Returns (cap, win_name, is_screen)."""
+    if source == 'screen':
+        return None, 'Screen Detection', True
+    if isinstance(source, int):
+        return cv2.VideoCapture(source, cv2.CAP_DSHOW), 'Camera Preview', False
+    return cv2.VideoCapture(source), 'Video Detection', False
+
+
+def _open_writer(cap, output_path):
+    """Set up an mp4 writer matching the source's resolution and FPS. Returns (writer, fps, total_frames)."""
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    return cv2.VideoWriter(output_path, fourcc, fps, (width, height)), fps, total_frames
+
+
+def _pace_to_video_clock(cap, pacing_start_time):
+    """Sleep so wall-clock time matches the next frame's timestamp in the source video."""
+    next_frame_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
+    elapsed_ms = (time.time() - pacing_start_time) * 1000
+    sleep_for = (next_frame_ms - elapsed_ms) / 1000
+    if sleep_for > 0:
+        time.sleep(sleep_for)
+
+
+def _print_save_summary(output_path, fps, total_frames, analysis_start):
+    """Print the post-save block (output path, source duration, analysis time)."""
+    elapsed = time.time() - analysis_start
+    video_duration = total_frames / fps
+    print(f"\n\nDone. Saved analysed video to {output_path}")
+    print(f"  Source video: {video_duration} sec at {fps:.2f} FPS")
+    print(f"  Analysis took: {elapsed:.2f} sec")
+
+
 def _exclude_window_from_capture(win_name):
+    """Mark a created OpenCV window as invisible to screen-capture APIs (Windows-only; harmless elsewhere)."""
     try:
         user32 = ctypes.windll.user32
         hwnd = user32.FindWindowW(None, win_name)

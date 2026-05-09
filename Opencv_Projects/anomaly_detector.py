@@ -1,6 +1,6 @@
 import time
 import cv2
-from detection_core import init_yolo, run_yolo_tracker
+from detection_core import init_yolo, analyse_frame
 
 
 
@@ -28,7 +28,7 @@ def detect_anomalies(video_source=0, scan_duration=5, percentage=80):
         if not has_frame:
             break
 
-        counts, _ = run_yolo_tracker(model, frame, False, True, id_map, remove_downscaling=False)
+        counts, _ = analyse_frame(model, frame, track_bool=True, id_map=id_map, remove_downscaling=False)
         if start_time is None:
             start_time = time.time()
         elapsed = time.time() - start_time
