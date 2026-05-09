@@ -2,15 +2,13 @@ import cv2
 from ultralytics import YOLO
 
 
-DETECT_EVERYTHING = False
 SHOW_CONF_IN_PREVIEW = False
 
-# Track the last printed detections per category so we only write to the terminal when something
-# actually changes. Confidence values are excluded from the comparison so they can fluctuate
-# without spamming the terminal. Storing the two categories separately lets us treat an object
-# moving between high and low conf as a "change" worth reporting.
-_last_high_conf_keys = None
-_last_low_conf_keys = None
+CONF = 0.15
+LABELING_CONF = 0.20
+IOU = 0.45
+
+_last_all_keys = None
 
 
 def draw_rectangle(frame, x, y, width, height):
@@ -22,17 +20,11 @@ def init_yolo(model_path='yolov8m-oiv7.pt'):
     return YOLO(model_path)
 
 
-# conf = how sure is the tracker that the object is even an object            iou=percentage of overlapping between two objects that is allowed for it to be classified as two
+
 # remove_downscaling: when True, YOLO processes the frame at its native width (rounded up to the next multiple of 32) instead of the default 640.
 # Small objects are detected better at the cost of computational intensity. 640 is baseline, 1920 would be 9x the computation.
-def run_yolo_tracker(model, frame, track_bool, id_map=None, conf=0.15, labeling_conf=0.20, iou=0.45, max_det=300, remove_downscaling=False, silent=False):
-    if DETECT_EVERYTHING:
-        conf = 0.01
-        labeling_conf = 0.01
-        iou = 0.7
+def run_yolo_tracker(model, frame, track_bool, id_map=None, max_det=300, remove_downscaling=False, silent=False):
 
-    # Round the frame's width up to the next multiple of 32 (YOLO's stride requirement).
-    # Small input images will be processed quicker this way without loosing information and larger will be processed with higher quality.
     if remove_downscaling:
         frame_width = frame.shape[1]
         pixel_width_after_compressing = ((frame_width + 31) // 32) * 32
@@ -40,9 +32,9 @@ def run_yolo_tracker(model, frame, track_bool, id_map=None, conf=0.15, labeling_
         pixel_width_after_compressing = 640
 
     if track_bool:
-        results = model.track(frame, persist=True, verbose=False, conf=conf, iou=iou, max_det=max_det, imgsz=pixel_width_after_compressing)
+        results = model.track(frame, persist=True, verbose=False, conf=CONF, iou=IOU, max_det=max_det, imgsz=pixel_width_after_compressing)
     else:
-        results = model.predict(frame, verbose=False, conf=conf, iou=iou, max_det=max_det, imgsz=pixel_width_after_compressing)
+        results = model.predict(frame, verbose=False, conf=CONF, iou=IOU, max_det=max_det, imgsz=pixel_width_after_compressing)
 
     boxes = results[0].boxes
 
@@ -88,9 +80,9 @@ def run_yolo_tracker(model, frame, track_bool, id_map=None, conf=0.15, labeling_
 
             label_text = f'{label} {number}: {box_conf:.2f}'
 
-            # When DETECT_EVERYTHING is False, only show the classification text on the preview and in the terminal if the instance confidence reaches label_conf.
-            # Low-confidence detections still get a rectangle, just no label.
-            show_label = box_conf >= labeling_conf
+            # Only show the classification text on the preview and in the terminal if the instance
+            # confidence reaches LABELING_CONF. Low-confidence detections still get a rectangle.
+            show_label = box_conf >= LABELING_CONF
 
             draw_label(frame, x1, y1, label_text, show_label)
             drawables.append((x1, y1, x2, y2, label_text, show_label))
@@ -147,7 +139,7 @@ def draw_label(frame, x1, y1, label_text, show_label):
         if 0 <= sample_x < frame_width and 0 <= sample_y < frame_height:
             b, g, r = frame[sample_y, sample_x]
             brightness = 0.299 * r + 0.587 * g + 0.114 * b
-            if 60 > brightness > 1:     # >1 is at times a bit more consistent
+            if 60 > brightness > 1:     # >1 for a special case where the background is a drawn rectangle line
                 dark_count += 1
     if dark_count >= 2:
         text_color = (255, 255, 255)
@@ -167,27 +159,25 @@ def print_detections(high_conf_items, low_conf_items, silent=False):
     if silent:
         return
 
-    global _last_high_conf_keys, _last_low_conf_keys
+    global _last_all_keys
 
-    high_keys = frozenset((lbl, num) for lbl, num, _ in high_conf_items)
-    low_keys = frozenset((lbl, num) for lbl, num, _ in low_conf_items)
+    # Build a single union of (label, number) identifiers across both categories. Comparing
+    # this union ignores high↔low transitions (the identifier stays in the union either way)
+    # and only triggers on genuine appearances and disappearances.
+    all_keys = frozenset((lbl, num) for lbl, num, _ in high_conf_items) | \
+               frozenset((lbl, num) for lbl, num, _ in low_conf_items)
 
-    # Only high-conf changes trigger output. Low-conf items are still displayed when a print
-    # happens, but their flickering on its own doesn't generate noise.
-    if high_keys == _last_high_conf_keys:
-        _last_low_conf_keys = low_keys     # keep state fresh for any future use
+    if all_keys == _last_all_keys:
         return
 
-    # The very first call has no previous state to "change" from, so suppress the header.
-    is_first_call = _last_high_conf_keys is None and _last_low_conf_keys is None
+    # The very first call has no previous state to "change" from, so use a different header.
+    is_first_call = _last_all_keys is None
 
-    _last_high_conf_keys = high_keys
-    _last_low_conf_keys = low_keys
+    _last_all_keys = all_keys
 
     if is_first_call:
         print("\n\n detected objects:")
-
-    if not is_first_call:
+    else:
         print("\n\nchange detected, objects:")
 
     # All objects disappeared (nothing high, nothing low) — special-case message.
