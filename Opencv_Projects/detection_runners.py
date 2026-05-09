@@ -8,18 +8,7 @@ from detection_core import init_yolo, run_yolo_tracker, redraw_detections
 
 REMOVE_DOWNSCALING_IN_VIDEOS = False
 ANALYSE_EVERY_X_FRAME = 1
-
-
-
-def _exclude_window_from_capture(win_name):
-    try:
-        user32 = ctypes.windll.user32
-        hwnd = user32.FindWindowW(None, win_name)
-        if hwnd:
-            WDA_EXCLUDEFROMCAPTURE = 0x00000011
-            user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
-    except (AttributeError, OSError):
-        pass  # not Windows or unsupported version
+WARMUP_FRAMES = 5  # for video sources, suppress change-detected output for the first N frames while YOLO settles
 
 
 def process_image(image_path=None, frame=None, remove_downscaling=True):
@@ -35,7 +24,7 @@ def process_image(image_path=None, frame=None, remove_downscaling=True):
     else:
         print("Detect_image must be called with image path or frame, must be set as the right keyword argument")
 
-    run_yolo_tracker(model, frame, True, False, remove_downscaling=remove_downscaling)
+    run_yolo_tracker(model, frame, True, remove_downscaling=remove_downscaling)
 
     win_name = 'Detection'
     cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
@@ -69,7 +58,7 @@ def process_video(source, track=True, output_path=None):
 
     model = init_yolo()
     frame_count = 0
-    print_interval = 60  # does not concern the tracking and is just the interval for terminal prints which act as a save point / history
+    analysed_count = 0   # counts only frames that actually went through YOLO; used for warmup gating
     id_map = {}
     last_drawables = []  # cached detections to redraw on skipped frames
 
@@ -133,8 +122,9 @@ def process_video(source, track=True, output_path=None):
         # analyse_every_x_frame <= 1 disables the skip logic (analyse every frame); otherwise only analyse every Xth frame
         should_analyse = ANALYSE_EVERY_X_FRAME <= 1 or frame_count % ANALYSE_EVERY_X_FRAME == 0
         if should_analyse:
-            print_bool = frame_count % print_interval == 0
-            _, last_drawables = run_yolo_tracker(model, frame, print_bool, track, id_map, remove_downscaling=REMOVE_DOWNSCALING_IN_VIDEOS)
+            silent = analysed_count < WARMUP_FRAMES
+            _, last_drawables = run_yolo_tracker(model, frame, track, id_map, remove_downscaling=REMOVE_DOWNSCALING_IN_VIDEOS, silent=silent)
+            analysed_count += 1
         else:
             # Skipped frame — redraw the last known boxes so they don't flicker on/off
             redraw_detections(frame, last_drawables)
@@ -143,8 +133,6 @@ def process_video(source, track=True, output_path=None):
         # logic for saving or showing video with detections
         if save_mode:
             writer.write(frame)
-            if total_frames > 0 and frame_count % print_interval == 0:
-                print(f"  Progress: {frame_count}/{total_frames} ({100 * frame_count / total_frames:.1f}%)")
         else:
             cv2.imshow(win_name, frame)
 
@@ -170,13 +158,24 @@ def process_video(source, track=True, output_path=None):
         cv2.destroyWindow(win_name)
 
 
+def _exclude_window_from_capture(win_name):
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.FindWindowW(None, win_name)
+        if hwnd:
+            WDA_EXCLUDEFROMCAPTURE = 0x00000011
+            user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
+    except (AttributeError, OSError):
+        pass  # not Windows or unsupported version
+
+
+
+
 def detect_camera(camera_index=0):
     process_video(camera_index)
 
 
 def detect_screen(track=False):
-    # screen content is usually static — predict mode (track=False) avoids the tracker's
-    # higher confidence thresholds, so mid-confidence detections aren't filtered out
     process_video('screen', track=track)
 
 

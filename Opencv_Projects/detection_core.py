@@ -5,10 +5,12 @@ from ultralytics import YOLO
 DETECT_EVERYTHING = False
 SHOW_CONF_IN_PREVIEW = False
 
-# Tracks the last set of detected objects so we only write to the terminal when it changes.
-# A "set" here is (label, number) for labelled items and label-only for low-confidence ones —
-# confidence values fluctuate frame-to-frame, so they're deliberately excluded.
-_last_print_signature = None
+# Track the last printed detections per category so we only write to the terminal when something
+# actually changes. Confidence values are excluded from the comparison so they can fluctuate
+# without spamming the terminal. Storing the two categories separately lets us treat an object
+# moving between high and low conf as a "change" worth reporting.
+_last_high_conf_keys = None
+_last_low_conf_keys = None
 
 
 def draw_rectangle(frame, x, y, width, height):
@@ -23,9 +25,7 @@ def init_yolo(model_path='yolov8m-oiv7.pt'):
 # conf = how sure is the tracker that the object is even an object            iou=percentage of overlapping between two objects that is allowed for it to be classified as two
 # remove_downscaling: when True, YOLO processes the frame at its native width (rounded up to the next multiple of 32) instead of the default 640.
 # Small objects are detected better at the cost of computational intensity. 640 is baseline, 1920 would be 9x the computation.
-def run_yolo_tracker(model, frame, print_bool, track_bool, id_map=None, conf=0.2, labeling_conf=0.2, iou=0.45, max_det=300, remove_downscaling=False):
-    global _last_print_signature
-
+def run_yolo_tracker(model, frame, track_bool, id_map=None, conf=0.15, labeling_conf=0.20, iou=0.45, max_det=300, remove_downscaling=False, silent=False):
     if DETECT_EVERYTHING:
         conf = 0.01
         labeling_conf = 0.01
@@ -40,9 +40,9 @@ def run_yolo_tracker(model, frame, print_bool, track_bool, id_map=None, conf=0.2
         pixel_width_after_compressing = 640
 
     if track_bool:
-        results = model.track(frame, persist=True, verbose=print_bool, conf=conf, iou=iou, max_det=max_det, imgsz=pixel_width_after_compressing)
+        results = model.track(frame, persist=True, verbose=False, conf=conf, iou=iou, max_det=max_det, imgsz=pixel_width_after_compressing)
     else:
-        results = model.predict(frame, verbose=print_bool, conf=conf, iou=iou, max_det=max_det, imgsz=pixel_width_after_compressing)
+        results = model.predict(frame, verbose=False, conf=conf, iou=iou, max_det=max_det, imgsz=pixel_width_after_compressing)
 
     boxes = results[0].boxes
 
@@ -100,7 +100,7 @@ def run_yolo_tracker(model, frame, print_bool, track_bool, id_map=None, conf=0.2
             else:
                 low_conf_items.append((label, number, box_conf))
 
-
+    print_detections(high_conf_items, low_conf_items, silent=silent)
     return frame_counts, drawables
 
 
@@ -118,7 +118,7 @@ def draw_label(frame, x1, y1, label_text, show_label):
         return
 
     if not SHOW_CONF_IN_PREVIEW:
-        label_text = label_text[:-5]
+        label_text = label_text[:-6]
 
     frame_height, frame_width = frame.shape[:2]
 
@@ -130,7 +130,7 @@ def draw_label(frame, x1, y1, label_text, show_label):
 
 
     # Compute the three sample coordinates: left start, horizontal middle, right end of where the text will land, all on the text's vertical centerline.
-    (text_w, text_h), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+    (text_w, text_h), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
     text_middle_y = text_y - text_h // 2            # this is just the y coordinate of the middle of the text, text_y is the bottom
 
     start_coord = (x1, text_middle_y)
@@ -153,3 +153,50 @@ def draw_label(frame, x1, y1, label_text, show_label):
         text_color = (255, 255, 255)
 
     cv2.putText(frame, label_text, (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, text_color, 1, cv2.LINE_AA)
+
+
+
+# Write the current frame's detections to the terminal — but only when something has actually
+# changed since the last print (new object, lost object, or an object switching between high and
+# low confidence). Confidence values are not part of the change check, so per-frame jitter alone
+# never triggers output. High-conf items get one line each; low-conf ones share a summary line.
+def print_detections(high_conf_items, low_conf_items, silent=False):
+    # During warmup (first few video frames where YOLO is still settling) the runner asks
+    # us to stay quiet. We also skip the state update, so the first non-silent call is
+    # treated as the true "first call" and starts with a clean slate.
+    if silent:
+        return
+
+    global _last_high_conf_keys, _last_low_conf_keys
+
+    high_keys = frozenset((lbl, num) for lbl, num, _ in high_conf_items)
+    low_keys = frozenset((lbl, num) for lbl, num, _ in low_conf_items)
+
+    # Only high-conf changes trigger output. Low-conf items are still displayed when a print
+    # happens, but their flickering on its own doesn't generate noise.
+    if high_keys == _last_high_conf_keys:
+        _last_low_conf_keys = low_keys     # keep state fresh for any future use
+        return
+
+    # The very first call has no previous state to "change" from, so suppress the header.
+    is_first_call = _last_high_conf_keys is None and _last_low_conf_keys is None
+
+    _last_high_conf_keys = high_keys
+    _last_low_conf_keys = low_keys
+
+    if is_first_call:
+        print("\n\n detected objects:")
+
+    if not is_first_call:
+        print("\n\nchange detected, objects:")
+
+    # All objects disappeared (nothing high, nothing low) — special-case message.
+    if not high_conf_items and not low_conf_items:
+        print("    no objects detected")
+        return
+
+    for label, number, box_conf in high_conf_items:
+        print(f'    {label} {number}: {box_conf:.2f}')
+    if low_conf_items:
+        items_str = ', '.join(f'{lbl} {c:.2f}' for lbl, _, c in low_conf_items)
+        print(f'        {len(low_conf_items)} low-confidence detection(s): {items_str}')
