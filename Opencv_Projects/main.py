@@ -11,6 +11,7 @@ from anomaly_detector import detect_anomalies
 if __name__ == '__main__':
 
     # YOLO detection thresholds. Lower values = more detections but more false positives
+    # Rule of thumb: conf should be lower (around 10-20) for images and higher for (especially fast paced) videos
     detection_core.CONF = 0.15            #  minimum confidence for a detection to be considered at all
     detection_core.LABELING_CONF = 0.20   # minimum confidence for the on-screen text label, also any object between CONF and LABELING_CONF will be printed as a low_conf object
     detection_core.IOU = 0.45             # lower = more aggressive deduplication
@@ -27,12 +28,12 @@ if __name__ == '__main__':
 
 
     #detect_saved_image('chair_image.png')
-    #detect_clipboard_image()
+    detect_clipboard_image()
 
     #detect_camera()
     #detect_screen()
 
-    detect_saved_video_live(r'C:\Users\carlo\Videos\SteelSeries Moments\Counter-Strike-2__2026-04-22__22-21-03.mp4')
+    #detect_saved_video_live(r'C:\Users\carlo\Videos\SteelSeries Moments\Counter-Strike-2__2026-04-22__22-21-03.mp4')
     #detect_saved_video_then_saveit(r'C:\Users\carlo\Videos\SteelSeries Moments\Counter-Strike-2__2026-04-22__22-21-03.mp4', r'C:\Users\carlo\Videos\SteelSeries Moments\detection_test.mp4')
 
     #detect_anomalies(0, scan_duration=5, percentage=80)

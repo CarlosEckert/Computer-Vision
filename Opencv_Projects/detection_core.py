@@ -21,42 +21,13 @@ def init_yolo(model_path='yolov8m-oiv7.pt'):
 
 
 
-# Run YOLO once on a single frame and return the raw results object.
-# Pure I/O against the model — no shared state, no side effects on the frame.
-# Reads CONF and IOU from module-level globals so they can be tuned from main.py.
-def _run_inference(model, frame, track_bool, max_det, remove_downscaling):
-    # Round the frame's width up to the next multiple of 32 (YOLO's stride requirement).
-    # remove_downscaling=True keeps the frame's native resolution (better for small objects, ~9x compute at 1920p).
-    if remove_downscaling:
-        imgsz = ((frame.shape[1] + 31) // 32) * 32
-    else:
-        imgsz = 640
-
-    if track_bool:
-        return model.track(frame, persist=True, verbose=False, conf=CONF, iou=IOU, max_det=max_det, imgsz=imgsz)
-    else:
-        return model.predict(frame, verbose=False, conf=CONF, iou=IOU, max_det=max_det, imgsz=imgsz)
-
-
-# Process a single frame end-to-end: run inference, manage tracker state, draw rectangles
-# and labels on the frame, and report changes to the terminal.
-# Returns (frame_counts, drawables): per-class counts (used by anomaly_detector) and a list
-# of cached draw instructions (used to re-render skipped frames in process_video).
 def analyse_frame(model, frame, track_bool, id_map=None, max_det=300, remove_downscaling=False, silent=False):
     results = _run_inference(model, frame, track_bool, max_det, remove_downscaling)
     boxes = results[0].boxes
+    names = results[0].names
 
-    # Prune stale tracker IDs from id_map (those no longer visible this frame)
     if track_bool and id_map is not None:
-        visible_keys = set()
-        if boxes is not None:
-            for box in boxes:
-                if box.id is not None:
-                    label = results[0].names[int(box.cls[0])]
-                    visible_keys.add((label, int(box.id[0])))
-        for k in list(id_map.keys()):
-            if k not in visible_keys:
-                del id_map[k]
+        _release_unused_instance_numbers(id_map, boxes, names)
 
     frame_counts = {}
     drawables = []  # list of (x1, y1, x2, y2, label_text, show_label) tuples for re-drawing on skipped frames
@@ -68,23 +39,10 @@ def analyse_frame(model, frame, track_bool, id_map=None, max_det=300, remove_dow
             x1, y1, x2, y2 = (int(v) for v in box.xyxy[0])
             draw_rectangle(frame, x1, y1, x2 - x1, y2 - y1)
 
-            label = results[0].names[int(box.cls[0])]
+            label = names[int(box.cls[0])]
             box_conf = float(box.conf[0])
             frame_counts[label] = frame_counts.get(label, 0) + 1
-
-            if track_bool and box.id is not None and id_map is not None:
-                key = (label, int(box.id[0]))
-                if key not in id_map:
-                    # assign lowest unused number for this class
-                    used = {v for k, v in id_map.items() if k[0] == label}
-                    num = 1
-                    while num in used:
-                        num += 1
-                    id_map[key] = num
-                number = id_map[key]
-            else:
-                class_counts[label] = class_counts.get(label, 0) + 1
-                number = class_counts[label]
+            number = _assign_instance_number(label, box, track_bool, id_map, class_counts)
 
             label_text = f'{label} {number}: {box_conf:.2f}'
 
@@ -102,6 +60,51 @@ def analyse_frame(model, frame, track_bool, id_map=None, max_det=300, remove_dow
 
     print_detections(high_conf_items, low_conf_items, silent=silent)
     return frame_counts, drawables
+
+
+
+def _run_inference(model, frame, track_bool, max_det, remove_downscaling):
+    # Round the frame's width up to the next multiple of 32 (YOLO's stride requirement).
+    # remove_downscaling=True keeps the frame's native resolution (better for small objects, ~9x compute at 1920p).
+    if remove_downscaling:
+        imgsz = ((frame.shape[1] + 31) // 32) * 32
+    else:
+        imgsz = 640
+
+    if track_bool:
+        return model.track(frame, persist=True, verbose=False, conf=CONF, iou=IOU, max_det=max_det, imgsz=imgsz)
+    else:
+        return model.predict(frame, verbose=False, conf=CONF, iou=IOU, max_det=max_det, imgsz=imgsz)
+
+
+
+def _release_unused_instance_numbers(id_map, boxes, names):
+    visible_keys = set()
+    if boxes is not None:
+        for box in boxes:
+            if box.id is not None:
+                label = names[int(box.cls[0])]
+                visible_keys.add((label, int(box.id[0])))
+    for k in list(id_map.keys()):
+        if k not in visible_keys:
+            del id_map[k]
+
+
+
+def _assign_instance_number(label, box, track_bool, id_map, class_counts):
+    if track_bool and box.id is not None and id_map is not None:
+        key = (label, int(box.id[0]))
+        if key not in id_map:
+            used = {v for k, v in id_map.items() if k[0] == label}
+            num = 1
+            while num in used:
+                num += 1
+            id_map[key] = num
+        return id_map[key]
+    class_counts[label] = class_counts.get(label, 0) + 1
+    return class_counts[label]
+
+
 
 
 # Re-draw cached detections on a fresh frame without re-running YOLO. Used when ANALYSE_EVERY_X_FRAME > 1
@@ -156,10 +159,6 @@ def draw_label(frame, x1, y1, label_text, show_label):
 
 
 
-# Write the current frame's detections to the terminal — but only when something has actually
-# changed since the last print (new object, lost object, or an object switching between high and
-# low confidence). Confidence values are not part of the change check, so per-frame jitter alone
-# never triggers output. High-conf items get one line each; low-conf ones share a summary line.
 def print_detections(high_conf_items, low_conf_items, silent=False):
     # During warmup (first few video frames where YOLO is still settling) the runner asks
     # us to stay quiet. We also skip the state update, so the first non-silent call is
@@ -172,8 +171,8 @@ def print_detections(high_conf_items, low_conf_items, silent=False):
     # Build a single union of (label, number) identifiers across both categories. Comparing
     # this union ignores high↔low transitions (the identifier stays in the union either way)
     # and only triggers on genuine appearances and disappearances.
-    all_keys = frozenset((lbl, num) for lbl, num, _ in high_conf_items) | \
-               frozenset((lbl, num) for lbl, num, _ in low_conf_items)
+    all_keys = frozenset((label, num) for label, num, _ in high_conf_items) | \
+               frozenset((label, num) for label, num, _ in low_conf_items)
 
     if all_keys == _last_all_keys:
         return

@@ -19,10 +19,12 @@ def process_image(image_path=None, frame=None, remove_downscaling=True):
         frame = cv2.imread(image_path)
 
     elif frame is not None and image_path is None:
-        frame = frame  # just to clarify
+        # frame = frame   just to clarify
+        pass
 
     else:
         print("Detect_image must be called with image path or frame, must be set as the right keyword argument")
+        return -1
 
     analyse_frame(model, frame, track_bool=False, remove_downscaling=remove_downscaling)
 
@@ -32,19 +34,6 @@ def process_image(image_path=None, frame=None, remove_downscaling=True):
     cv2.waitKey(0)
     cv2.destroyWindow(win_name)
 
-
-def detect_saved_image(image_path):
-    process_image(image_path)
-
-
-# if you have a problem with images not being detected that you copied some time ago, (enable clipboard history and) from the clipboard manager click the image once that you want to analyze before running the code
-def detect_clipboard_image():
-    clipboard_image = ImageGrab.grabclipboard()
-    if clipboard_image is None:
-        print("No image found in clipboard.")
-        return
-    frame = cv2.cvtColor(np.array(clipboard_image), cv2.COLOR_RGB2BGR)
-    process_image(frame=frame)
 
 
 
@@ -64,9 +53,7 @@ def process_video(source, track=True, output_path=None):
 
     cap, win_name, is_screen = _open_source(source)
 
-    # Saved videos in preview mode need pacing — without it, fast loops (e.g. ANALYSE_EVERY_X_FRAME > 1)
-    # blast through the file. Camera/screen don't need this (live sources have their own clock); save mode
-    # doesn't want this (we write as fast as possible).
+
     needs_pacing = not is_screen and not isinstance(source, int) and not save_mode
     pacing_start_time = time.time() if needs_pacing else None
 
@@ -77,19 +64,8 @@ def process_video(source, track=True, output_path=None):
     if save_mode:
         writer, fps, total_frames = _open_writer(cap, output_path)
         analysis_start = time.time()
-
-    # Set up a resizable preview window (skipped in save mode since there's no preview).
-    # For screen capture, default the initial size to 1/3 of the screen resolution so 4K and FHD monitors look comparable.
-    if not save_mode:
-        cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
-        if is_screen:
-            screen_width, screen_height = ImageGrab.grab().size
-            cv2.resizeWindow(win_name, screen_width // 3, screen_height // 3)
-            # Force the window to actually be created at the OS level (namedWindow alone doesn't),
-            # then mark it excluded from screen capture so it disappears from ImageGrab's view.
-            cv2.imshow(win_name, np.zeros((100, 100, 3), dtype=np.uint8))
-            cv2.waitKey(1)
-            _exclude_window_from_capture(win_name)
+    else:
+        _setup_preview_window(win_name, is_screen)
 
     while True:
         # In preview mode the waitKey is needed to pump window events and check ESC; in save mode we skip it for speed
@@ -170,6 +146,16 @@ def _print_save_summary(output_path, fps, total_frames, analysis_start):
     print(f"  Analysis took: {elapsed:.2f} sec")
 
 
+def _setup_preview_window(win_name, is_screen):
+    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+    if is_screen:
+        screen_width, screen_height = ImageGrab.grab().size
+        cv2.resizeWindow(win_name, screen_width // 3, screen_height // 3)
+        cv2.imshow(win_name, np.zeros((100, 100, 3), dtype=np.uint8))
+        cv2.waitKey(1)
+        _exclude_window_from_capture(win_name)
+
+
 def _exclude_window_from_capture(win_name):
     """Mark a created OpenCV window as invisible to screen-capture APIs (Windows-only; harmless elsewhere)."""
     try:
@@ -182,6 +168,19 @@ def _exclude_window_from_capture(win_name):
         pass  # not Windows or unsupported version
 
 
+
+def detect_saved_image(image_path):
+    process_image(image_path)
+
+
+# if you have a problem with images not being detected that you copied some time ago, (enable clipboard history and) from the clipboard manager click the image once that you want to analyze before running the code
+def detect_clipboard_image():
+    clipboard_image = ImageGrab.grabclipboard()
+    if clipboard_image is None:
+        print("No image found in clipboard.")
+        return
+    frame = cv2.cvtColor(np.array(clipboard_image), cv2.COLOR_RGB2BGR)
+    process_image(frame=frame)
 
 
 def detect_camera(camera_index=0):
