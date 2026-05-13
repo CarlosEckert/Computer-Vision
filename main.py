@@ -1,5 +1,5 @@
-from Object_detection.src import detection_core, detection_runners
-from Object_detection.src.detection_runners import (
+from src import detection_core, detection_runners
+from src.detection_runners import (
     detect_clipboard_image,
 )
 
