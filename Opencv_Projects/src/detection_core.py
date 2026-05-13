@@ -16,7 +16,7 @@ def draw_rectangle(frame, x, y, width, height):
 
 
 # oiv7 modell is trained on the open images 7 databank with 600 object classes
-def init_yolo(model_path='yolov8m-oiv7.pt'):
+def init_yolo(model_path='models/yolov8m-oiv7.pt'):
     return YOLO(model_path)
 
 

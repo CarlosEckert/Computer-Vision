@@ -3,7 +3,7 @@ import ctypes
 import time
 import numpy as np
 from PIL import ImageGrab
-from detection_core import init_yolo, analyse_frame, redraw_detections
+from Opencv_Projects.src.detection_core import init_yolo, analyse_frame, redraw_detections
 
 
 REMOVE_DOWNSCALING_IN_VIDEOS = False
