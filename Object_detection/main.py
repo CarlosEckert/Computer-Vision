@@ -1,5 +1,5 @@
-from Opencv_Projects.src import detection_core, detection_runners
-from Opencv_Projects.src.detection_runners import (
+from Object_detection.src import detection_core, detection_runners
+from Object_detection.src.detection_runners import (
     detect_clipboard_image,
 )
 
