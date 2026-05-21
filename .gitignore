@@ -1,3 +1,4 @@
 *.ipynb
 /Object_detection_save/Opencv/
 *.pt
+anomaly_detector.py

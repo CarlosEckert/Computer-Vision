@@ -1,14 +1,13 @@
 import detection_core
 import detection_runners
-from detection_runners import (
-    detect_clipboard_image,
-)
+from detection_runners import (detect_clipboard_image)
+
 
 if __name__ == '__main__':
 
     # YOLO detection thresholds. Lower values = more detections but more false positives
     # Rule of thumb: conf should be lower (around 10-20) for images and higher for (especially fast paced) videos
-    detection_core.CONF = 0.15            #  minimum confidence for a detection to be considered at all
+    detection_core.CONF = 0.15            # minimum confidence for a detection to be considered at all
     detection_core.LABELING_CONF = 0.20   # minimum confidence for the on-screen text label, also any object between CONF and LABELING_CONF will be printed as a low_conf object
     detection_core.IOU = 0.45             # lower = more aggressive deduplication
 
