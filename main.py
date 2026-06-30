@@ -1,6 +1,6 @@
 import detection_core
 import detection_runners
-from detection_runners import (detect_clipboard_image)
+from detection_runners import *
 
 
 if __name__ == '__main__':
@@ -23,12 +23,10 @@ if __name__ == '__main__':
 
 
     #detect_saved_image('')
-    detect_clipboard_image()
+    #detect_clipboard_image()
 
     #detect_camera()
     #detect_screen()
 
     #detect_saved_video_live(r'')
     #detect_saved_video_then_saveit(r'', r'')
-
-    #detect_anomalies(0, scan_duration=5, percentage=80)
