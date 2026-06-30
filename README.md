@@ -3,7 +3,8 @@
 Core setup for computer vision projects using YOLO. Works with images, clipboard, screen, webcam, and video.
 
 Built on [Ultralytics YOLO](https://github.com/ultralytics/ultralytics) with the `yolov8m-oiv7` model (600 classes from Open Images v7) as the default. 
-Intended as a reusable foundation
+Intended as a reusable foundation.  
+Build on windows and not tested for linux and mac.
 
 ## Features
 
